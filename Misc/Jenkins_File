@@ -1,0 +1,69 @@
+pipeline {
+  agent any
+  tools {
+      terraform 'terraform'
+  }
+  parameters {
+    password (name: 'AWS_ACCESS_KEY_ID')
+    password (name: 'AWS_SECRET_ACCESS_KEY')
+    booleanParam (name: 'read_file', defaultValue: false)
+    booleanParam (name: 'terraform_apply', defaultValue: false)
+    booleanParam (name: 'terraform_destroy', defaultValue: false)
+
+  }
+  environment {
+    AWS_ACCESS_KEY_ID = "${params.AWS_ACCESS_KEY_ID}"
+    AWS_SECRET_ACCESS_KEY = "${params.AWS_SECRET_ACCESS_KEY}"
+    terraform_apply = "${params.terraform_apply}"
+    terraform_destroy = "${params.terraform_destroy}"
+    read_file = "${params.read_file}"
+    def certificate_authority
+  }
+  stages {
+      stage('Git Checkout') {
+          steps {
+              git branch: 'main', url: 'https://github.com/mbryduck/experimentation.git'
+          }
+      }
+      stage('Terraform Init') {
+          steps {
+              sh 'terraform init'
+          }
+      }
+      stage('Terraform Plan') {
+          steps {
+              sh 'terraform plan -var-file=default.auto.tfvars'
+          }
+      }
+      stage('Terraform Apply') {
+          when { expression { "${terraform_apply}" == 'true' } }
+          steps {
+              sh 'terraform apply -var-file=default.auto.tfvars -auto-approve'
+          }
+      }
+      stage('Terraform Destroy') {
+          when { expression { "${terraform_destroy}" == 'true' } }
+          steps {
+              sh 'terraform destroy -var-file=default.auto.tfvars -auto-approve'
+          }
+      }
+      stage('Read File'){
+          when { expression { "${read_file}" == 'true' } }
+          steps {
+              script{
+                  def props = readJSON file: 'terraform.tfstate.backup'
+
+                  env.certificate_authority = "${props.outputs.eks.value.control_plane.certificate_authority.data[0]}"
+                //   env.arn = props.outputs.eks.value.control_plane.arn
+                //   env.server_endpoint = props.outputs.eks.value.control_plane.endpoint
+                //   env.cluster_name = props.outputs.eks.value.control_plane.name
+                  echo "${env.certificate_authority}"
+                //   echo "${env.arn}"
+                //   echo "${env.server_endpoint}"
+                //   echo "${env.cluster_name}"
+              }
+          }
+      }
+
+    }
+  }
